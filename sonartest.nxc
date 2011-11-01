@@ -1,0 +1,29 @@
+task main() {
+     SetSensorUltrasonic(S1);
+     SetSensor(S3, SENSOR_LIGHT);
+     SetSensor(S4, SENSOR_LIGHT);
+     byte dist;
+     byte l1 = 0xFF;
+     byte l2 = 0xFF;
+     OnFwd(OUT_B, 80);
+     OnFwd(OUT_A, 80);
+     int count = 0;
+     for(;;){
+
+             TextOut(0,LCD_LINE1,"    ");
+             TextOut(0,LCD_LINE2,"    ");
+             TextOut(0,LCD_LINE3,"    ");
+             dist = SensorUS(S1);
+             l1 = SensorValue(S3);
+             l2 = SensorValue(S4);
+             NumOut(0,LCD_LINE1,dist);
+             NumOut(0,LCD_LINE2,l1);
+             NumOut(0,LCD_LINE3,l2);
+             Wait(100);
+             if (l1 > 40 && l2 > 40) {
+                count++;
+                if (count > 4) break;
+             }
+     }
+     OnFwd(OUT_AB, 0);
+}
