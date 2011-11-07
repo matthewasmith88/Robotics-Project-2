@@ -7,28 +7,37 @@ task main() {
 	int new_dist = 0;
 	int distances[NUM_SAMPLES];
 	int weighted_dist = 0;
-	long us_count = 0;
+	long us_count = 0;  //total us samples
 	
+	OnRev(OUT_AB, 50);
 	for(;;){
-		TextOut(0,LCD_LINE1,"    ");
-		
 		new_dist = SensorUS(S1);
 		distances[us_count % NUM_SAMPLES] = new_dist;
-		if (us_count < 9) weighted_dist = new_dist;
+		if (us_count < NUM_SAMPLES) weighted_dist = new_dist;
 		else {
 			int multiplier = NUM_SAMPLES;
 			weighted_dist = 0;
 			for (int i = 0; i < NUM_SAMPLES; i++) {
-				weighted_dist =+ (multiplier * distances[(us_count - i) % NUM_SAMPLES]);
+				weighted_dist += (multiplier * distances[(us_count - i) % NUM_SAMPLES]);
 				multiplier--;
 			}
 			weighted_dist = weighted_dist / ((NUM_SAMPLES * (NUM_SAMPLES + 1)) / 2);
 		}
 		us_count++;
 		
+		TextOut(0,LCD_LINE1,"    ");
+		TextOut(0,LCD_LINE2,"    ");
 		NumOut(0,LCD_LINE1,weighted_dist);
-		if (weighted_dist < 110) {
-			PlayTone(weighted_dist * 10, 100);
+		NumOut(0,LCD_LINE2,new_dist);
+		
+		if (weighted_dist < 10) {
+			OnFwd(OUT_AB, 0);
+			PlayTone(220, 1000);
+			Wait(1000);
+			break;
+		}
+		if (weighted_dist < 250) {
+			PlayTone(weighted_dist * 20, ONE_SECOND / SAMPLES_PER_SECOND);
 		}
 		Wait(ONE_SECOND / SAMPLES_PER_SECOND);
 	}
