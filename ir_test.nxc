@@ -1,0 +1,29 @@
+task main() {
+	SetSensor(S2, SENSOR_LIGHT);
+	SetSensor(S3, SENSOR_LIGHT);
+	byte right_ir;
+	byte left_ir;
+	OnFwdReg(OUT_B, 40, OUT_REGMODE_SPEED);
+	OnFwdReg(OUT_A, 40, OUT_REGMODE_SPEED);
+	
+	for (;;) {
+		right_ir = SensorValue(S2);
+		left_ir = SensorValue(S3);
+		
+		if (right_ir < 35 && left_ir > 35) {
+			OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+			OnFwdReg(OUT_A, 0, OUT_REGMODE_SPEED);
+		} else if (right_ir > 35 && left_ir < 35) {
+			OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
+			OnFwdReg(OUT_B, 0, OUT_REGMODE_SPEED);
+		} else {
+			OnFwdReg(OUT_B, 30, OUT_REGMODE_SPEED);
+			OnFwdReg(OUT_A, 30, OUT_REGMODE_SPEED);
+		}
+		
+		TextOut(0, LCD_LINE1, "     right");
+		TextOut(0, LCD_LINE2, "     left");
+		NumOut(0, LCD_LINE1, right_ir);
+		NumOut(0, LCD_LINE2, left_ir);
+	}
+}

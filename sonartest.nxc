@@ -1,6 +1,75 @@
 #define NUM_SAMPLES 10
 #define SAMPLES_PER_SECOND 100
 #define ONE_SECOND 1000
+#define SONAR_STOP 14
+#define SONAR_GO 150
+
+//The maximum difference in wheel speed
+#define MAX_DELTA 25
+//The average wheel speed
+#define AVG_SPEED 40
+//The minimum time to spend before rerolling wheel speeds.
+#define MIN_TIME 400
+//The max additional random time to spend before rerolling wheel speeds
+#define MAX_TIME_DELTA 200
+//The largest difference in wheel movements before the choice in direction
+//becomes guarenteed.
+#define RANDOMNESS 100
+
+mutex motorMutex;
+
+//Implements a drunken walk: Generally attempts to correct accumulate
+//wondering off the path, while still allowing mostly random directions.
+task move() {
+	int save_time = 0;
+	int bias_offset = 0;
+	int left = 40; //The speed of the left wheel
+	int right = 40; //The speed of the right wheel.
+	long a; //A rotation count
+	long b; //B rotation count
+	int prev_b;
+	int delta; //The amount to differ the wheel speeds by.
+	int wheelDiff;	//The difference in total wheel rotations,
+					//from 0 to 2*RANDOMNESS, give or take some
+	float chance;	//The overall chance that the bot will turn left
+	while(true) {
+		Acquire(motorMutex);
+		//motor b (left motor) actually travels further than what its motor rotation count
+		//returns. So to compensate for this loss, we add an increasling large
+		//bias to the rotation count, resetting it when the rotation count is reset.
+		if (MotorRotationCount(OUT_A) < a + bias_offset){
+			//We must have hit something!
+			bias_offset = 2;
+		} else {
+			bias_offset += 2;
+		}
+		b = MotorRotationCount(OUT_B);
+		a = MotorRotationCount(OUT_A) -  bias_offset;
+		wheelDiff = a - b + RANDOMNESS;
+		chance = wheelDiff / (2 * RANDOMNESS);
+		delta = Random(MAX_DELTA);
+		//Roll a random number from 0 to 1.
+		float die = (Random(100) / 100);
+		//debug
+		TextOut(0, LCD_LINE1, "A:         ");
+		NumOut(15, LCD_LINE1, MotorRotationCount(OUT_A));
+		TextOut(0, LCD_LINE2, "B:         ");
+		NumOut(15, LCD_LINE2, MotorRotationCount(OUT_B));
+		//turn right
+		if (die > chance) {
+			right = AVG_SPEED + delta;
+			left = AVG_SPEED - delta;
+		//turn left
+		} else {
+			left = AVG_SPEED + delta;
+			right = AVG_SPEED - delta;
+		}
+		OnFwdReg(OUT_B, left, OUT_REGMODE_SPEED);
+		OnFwdReg(OUT_A, right + 1, OUT_REGMODE_SPEED);
+		Release(motorMutex);
+		Wait(save_time = MIN_TIME + Random(MAX_TIME_DELTA));
+	}
+}
 
 task main() {
 	SetSensorUltrasonic(S1);
@@ -10,7 +79,8 @@ task main() {
 	long us_count = 0;  //total us samples
 	
 	OnRev(OUT_AB, 50);
-	for(;;){
+	while(true)
+		Acquire(motorMutex);
 		new_dist = SensorUS(S1);
 		distances[us_count % NUM_SAMPLES] = new_dist;
 		if (us_count < NUM_SAMPLES) weighted_dist = new_dist;
@@ -30,15 +100,18 @@ task main() {
 		NumOut(0,LCD_LINE1,weighted_dist);
 		NumOut(0,LCD_LINE2,new_dist);
 		
-		if (weighted_dist < 10) {
+		if (weighted_dist < SONAR_STOP) {
 			OnFwd(OUT_AB, 0);
 			PlayTone(220, 1000);
 			Wait(1000);
-			break;
+			OnFwd(OUT_A, 20);
+			OnFwd(OUT_B, 20);
+			Wait(1000);
 		}
 		if (weighted_dist < 250) {
 			PlayTone(weighted_dist * 20, ONE_SECOND / SAMPLES_PER_SECOND);
 		}
+		Release(motorMutex);
 		Wait(ONE_SECOND / SAMPLES_PER_SECOND);
 	}
 }
