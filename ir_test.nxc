@@ -1,24 +1,56 @@
+#define HUNT_TIME 70
+#define HUNT_RIGHT_MULT 2.2
+
 task main() {
 	SetSensor(S2, SENSOR_LIGHT);
 	SetSensor(S3, SENSOR_LIGHT);
 	byte right_ir;
 	byte left_ir;
-	OnFwdReg(OUT_B, 40, OUT_REGMODE_SPEED);
-	OnFwdReg(OUT_A, 40, OUT_REGMODE_SPEED);
-	
+	OnFwdReg(OUT_B, 50, OUT_REGMODE_SPEED);
+	OnFwdReg(OUT_A, 50, OUT_REGMODE_SPEED);
+
+	bool onLine = false;
+	int toHuntLeft = HUNT_TIME;
+	int toHuntRight = HUNT_TIME * 2; //must be double left
 	for (;;) {
+		
 		right_ir = SensorValue(S2);
 		left_ir = SensorValue(S3);
-		
+		//Reset toHunt if any sensor is black
+		if (left_ir < 35 || right_ir < 35) {
+			toHuntLeft = HUNT_TIME;
+			toHuntRight = HUNT_TIME * HUNT_RIGHT_MULT;
+		}
+		//Turn twords the line
 		if (right_ir < 35 && left_ir > 35) {
 			OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
 			OnFwdReg(OUT_A, 0, OUT_REGMODE_SPEED);
 		} else if (right_ir > 35 && left_ir < 35) {
 			OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
 			OnFwdReg(OUT_B, 0, OUT_REGMODE_SPEED);
-		} else {
-			OnFwdReg(OUT_B, 30, OUT_REGMODE_SPEED);
-			OnFwdReg(OUT_A, 30, OUT_REGMODE_SPEED);
+		} else if (right_ir < 35 && left_ir < 35) { //Follow the line
+			onLine = true;
+			OnFwdReg(OUT_AB, 20, OUT_REGMODE_SPEED);
+		} else if (onLine && toHuntLeft > 0) { //exited a line, looking left
+			OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+			OnRevReg(OUT_A, 10, OUT_REGMODE_SPEED);
+			toHuntLeft--;
+			Wait(10);
+		} else if (onLine && toHuntRight > 0) { //exited a line, looking right
+			OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
+			OnRevReg(OUT_B, 10, OUT_REGMODE_SPEED);
+			toHuntRight--;
+			Wait(10);
+		} else if (onLine) { //Hunted and found no line
+			onLine = false;
+			toHuntLeft = HUNT_TIME;
+			toHuntRight = HUNT_TIME * HUNT_RIGHT_MULT;
+			//Recenter forward
+			OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+			OnRevReg(OUT_A, 10, OUT_REGMODE_SPEED);
+			Wait(10 * HUNT_TIME);
+		} else { //Not on a line
+			OnFwdReg(OUT_AB, 50, OUT_REGMODE_SPEED);
 		}
 		
 		TextOut(0, LCD_LINE1, "     right");
