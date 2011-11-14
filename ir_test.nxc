@@ -1,5 +1,8 @@
-#define HUNT_TIME 70
+#define HUNT_TIME 80
 #define HUNT_RIGHT_MULT 2.2
+#define GIVE_UP 700
+#define BLACK_CUTOFF 35
+#define GIVE_UP_RESUME 200
 
 task main() {
 	SetSensor(S2, SENSOR_LIGHT);
@@ -11,26 +14,69 @@ task main() {
 
 	bool onLine = false;
 	int toHuntLeft = HUNT_TIME;
-	int toHuntRight = HUNT_TIME * 2; //must be double left
+	int toHuntRight = HUNT_TIME * HUNT_RIGHT_MULT; //must be double left
 	for (;;) {
 		
 		right_ir = SensorValue(S2);
 		left_ir = SensorValue(S3);
 		//Reset toHunt if any sensor is black
-		if (left_ir < 35 || right_ir < 35) {
+		if (left_ir < BLACK_CUTOFF || right_ir < BLACK_CUTOFF) {
 			toHuntLeft = HUNT_TIME;
 			toHuntRight = HUNT_TIME * HUNT_RIGHT_MULT;
 		}
 		//Turn twords the line
-		if (right_ir < 35 && left_ir > 35) {
+		if (right_ir < BLACK_CUTOFF && left_ir > BLACK_CUTOFF) {
 			OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
 			OnFwdReg(OUT_A, 0, OUT_REGMODE_SPEED);
-		} else if (right_ir > 35 && left_ir < 35) {
+			PlayTone(261, 10);
+		} else if (right_ir > BLACK_CUTOFF && left_ir < BLACK_CUTOFF) {
 			OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
 			OnFwdReg(OUT_B, 0, OUT_REGMODE_SPEED);
-		} else if (right_ir < 35 && left_ir < 35) { //Follow the line
-			onLine = true;
-			OnFwdReg(OUT_AB, 20, OUT_REGMODE_SPEED);
+			PlayTone(311, 10);
+		} else if (right_ir < BLACK_CUTOFF && left_ir < BLACK_CUTOFF) { //Follow the line
+			if (!onLine) {
+				//Just got on this line
+				onLine = true;
+				ResetRotationCount(OUT_AB);
+			} else {
+				int diff = MotorRotationCount(OUT_B) - MotorRotationCount(OUT_A);
+				if (diff < -GIVE_UP || diff > GIVE_UP) {
+					//Stop!
+					OnFwd(OUT_AB, 0);
+					//Play the give up sound
+					int sound;
+					int dsound = 40; //amount to change tone by
+					for (sound = 0; sound >= 0; sound += dsound) {
+						PlayTone(440 + sound, 10);
+						Wait(10);
+						if (sound > 1760) dsound = -40; //go up then down.
+					}
+				}
+				if (diff < -GIVE_UP) {  //we got turned around
+					while (diff < -GIVE_UP_RESUME) {
+						OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+						OnFwdReg(OUT_A, 0, OUT_REGMODE_SPEED);
+						diff = MotorRotationCount(OUT_B) - MotorRotationCount(OUT_A);
+					}
+					OnFwdReg(OUT_AB, 40, OUT_REGMODE_SPEED);
+					Wait(500);
+					ResetRotationCount(OUT_AB);
+				//Hopefully we've escaped now!
+				} else if (diff > GIVE_UP) { //We got turned around (the other way)
+					while (diff > GIVE_UP_RESUME) {
+						OnFwdReg(OUT_B, 0, OUT_REGMODE_SPEED);
+						OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
+						diff = MotorRotationCount(OUT_B) - MotorRotationCount(OUT_A);
+					}
+					OnFwdReg(OUT_AB, 40, OUT_REGMODE_SPEED);
+					Wait(500);
+					onLine = false;
+					ResetRotationCount(OUT_AB);
+					//Hopefully we've escaped now!
+				} else {
+					OnFwdReg(OUT_AB, 20, OUT_REGMODE_SPEED);
+				}
+			}
 		} else if (onLine && toHuntLeft > 0) { //exited a line, looking left
 			OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
 			OnRevReg(OUT_A, 10, OUT_REGMODE_SPEED);
@@ -49,6 +95,7 @@ task main() {
 			OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
 			OnRevReg(OUT_A, 10, OUT_REGMODE_SPEED);
 			Wait(10 * HUNT_TIME);
+			ResetRotationCount(OUT_AB);
 		} else { //Not on a line
 			OnFwdReg(OUT_AB, 50, OUT_REGMODE_SPEED);
 		}
