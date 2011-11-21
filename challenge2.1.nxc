@@ -1,0 +1,263 @@
+/******** Sonar Constants *************/
+#define NUM_SAMPLES 10
+#define SAMPLES_PER_SECOND 100
+#define ONE_SECOND 1000
+#define SONAR_SLOW 25
+#define SONAR_STOP 6
+#define SONAR_GO 150
+
+/******* Line Following Constants ******/
+#define HUNT_TIME 40
+#define HUNT_RIGHT_MULT 2.2
+#define GIVE_UP 700
+#define BLACK_CUTOFF 35
+#define GIVE_UP_RESUME 200
+
+/******** Wandering Constants ***********/
+//The maximum difference in wheel speed
+#define MAX_DELTA 25
+//The average wheel speed
+#define AVG_SPEED 40
+//The minimum time to spend before rerolling wheel speeds.
+#define MIN_TIME 400
+//The max additional random time to spend before rerolling wheel speeds
+#define MAX_TIME_DELTA 200
+//The largest difference in wheel movements before the choice in direction
+//becomes guarenteed.
+#define RANDOMNESS 100
+
+/******* Behaviors *******/
+#define MOVING 0
+#define LINE 1
+#define SONAR 2
+
+/** Mutexes **/
+mutex behaviorMutex; //Protects the behavior state
+
+int behaviorState = MOVING; //Notes what mode the robot is in.
+
+bool onLine = false; //Determines if we are still on a line or not
+
+//Implements a drunken walk: Generally attempts to correct accumulate
+//wondering off the path, while still allowing mostly random directions.
+task move() {
+	int save_time = 0;
+	int bias_offset = 0;
+	int left = 40; //The speed of the left wheel
+	int right = 40; //The speed of the right wheel.
+	long a; //A rotation count
+	long b; //B rotation count
+	int prev_b;
+	int delta; //The amount to differ the wheel speeds by.
+	int wheelDiff;	//The difference in total wheel rotations,
+					//from 0 to 2*RANDOMNESS, give or take some
+	float chance;	//The overall chance that the bot will turn left
+	while(true) {
+		
+		Acquire(behaviorMutex);
+		TextOut(0, LCD_LINE1, "MOVE ");
+		if (behaviorState == MOVING) {
+			//motor b (left motor) actually travels further than what its motor rotation count
+			//returns. So to compensate for this loss, we add an increasling large
+			//bias to the rotation count, resetting it when the rotation count is reset.
+			if (MotorRotationCount(OUT_A) < a + bias_offset){
+				//We must have hit something!
+				bias_offset = 2;
+			} else {
+				bias_offset += 2;
+			}
+			b = MotorRotationCount(OUT_B);
+			a = MotorRotationCount(OUT_A) -  bias_offset;
+			wheelDiff = a - b + RANDOMNESS;
+			chance = wheelDiff / (2 * RANDOMNESS);
+			delta = Random(MAX_DELTA);
+			//Roll a random number from 0 to 1.
+			float die = (Random(100) / 100);
+			//turn right
+			if (die > chance) {
+				right = AVG_SPEED + delta;
+				left = AVG_SPEED - delta;
+			//turn left
+			} else {
+				left = AVG_SPEED + delta;
+				right = AVG_SPEED - delta;
+			}
+			OnFwdReg(OUT_B, left + 1, OUT_REGMODE_SPEED);
+			OnFwdReg(OUT_A, right, OUT_REGMODE_SPEED);
+		}
+		Release(behaviorMutex);
+		Wait(save_time = MIN_TIME + Random(MAX_TIME_DELTA));
+	}
+}
+
+task lineTrack() {
+	byte right_ir;
+	byte left_ir;
+	int toHuntLeft = HUNT_TIME;
+	int toHuntRight = HUNT_TIME * HUNT_RIGHT_MULT; //must be double left
+	for (;;) {
+		
+		Acquire(behaviorMutex);
+		if (behaviorState != SONAR) {
+			right_ir = SensorValue(S2);
+			left_ir = SensorValue(S3);
+			//Reset toHunt if any sensor is black
+			if (left_ir < BLACK_CUTOFF || right_ir < BLACK_CUTOFF) {
+				toHuntLeft = HUNT_TIME;
+				toHuntRight = HUNT_TIME * HUNT_RIGHT_MULT;
+				behaviorState = LINE; //Note that we are now on a line
+			}
+			//Turn twords the line
+			if (right_ir < BLACK_CUTOFF && left_ir > BLACK_CUTOFF) {
+				OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+				OnFwdReg(OUT_A, 0, OUT_REGMODE_SPEED);
+				PlayTone(261, 10);
+			} else if (right_ir > BLACK_CUTOFF && left_ir < BLACK_CUTOFF) {
+				OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
+				OnFwdReg(OUT_B, 0, OUT_REGMODE_SPEED);
+				PlayTone(311, 10);
+			} else if (right_ir < BLACK_CUTOFF && left_ir < BLACK_CUTOFF) { //Follow the line
+				if (!onLine) {
+					//Just got on this line
+					onLine = true;
+					ResetRotationCount(OUT_AB);
+				} else {
+					int diff = MotorRotationCount(OUT_B) - MotorRotationCount(OUT_A);
+					if (diff < -GIVE_UP || diff > GIVE_UP) {
+						//Stop!
+						OnFwd(OUT_AB, 0);
+						//Play the give up sound
+						int sound;
+						int dsound = 40; //amount to change tone by
+						for (sound = 0; sound >= 0; sound += dsound) {
+							PlayTone(440 + sound, 10);
+							Wait(10);
+							if (sound > 1760) dsound = -40; //go up then down.
+						}
+						//Turn around
+						if (diff < -GIVE_UP) {  //we got turned around
+							while (diff < -GIVE_UP_RESUME) {
+								OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+								OnFwdReg(OUT_A, 0, OUT_REGMODE_SPEED);
+								diff = MotorRotationCount(OUT_B) - MotorRotationCount(OUT_A);
+							}
+							OnFwdReg(OUT_AB, 40, OUT_REGMODE_SPEED);
+							Wait(400);
+							ResetRotationCount(OUT_AB);
+						} else { //We got turned around (the other way)
+							while (diff > GIVE_UP_RESUME) {
+								OnFwdReg(OUT_B, 0, OUT_REGMODE_SPEED);
+								OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
+								diff = MotorRotationCount(OUT_B) - MotorRotationCount(OUT_A);
+							}
+							OnFwdReg(OUT_AB, 40, OUT_REGMODE_SPEED);
+							Wait(400);
+							onLine = false;
+							ResetRotationCount(OUT_AB);
+						}
+						behaviorState = MOVING; //Resume wandering when done turning around
+					} else { //Just following a line
+						OnFwdReg(OUT_AB, 20, OUT_REGMODE_SPEED);
+					}
+				}
+			} else if (onLine && toHuntLeft > 0) { //exited a line, looking left
+				OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+				OnRevReg(OUT_A, 10, OUT_REGMODE_SPEED);
+				toHuntLeft--;
+				Wait(10);
+			} else if (onLine && toHuntRight > 0) { //exited a line, looking right
+				OnFwdReg(OUT_A, 20, OUT_REGMODE_SPEED);
+				OnRevReg(OUT_B, 10, OUT_REGMODE_SPEED);
+				toHuntRight--;
+				Wait(10);
+			} else if (onLine) { //Hunted and found no line
+				onLine = false;
+				toHuntLeft = HUNT_TIME;
+				toHuntRight = HUNT_TIME * HUNT_RIGHT_MULT;
+				//Recenter forward
+				OnFwdReg(OUT_B, 20, OUT_REGMODE_SPEED);
+				OnRevReg(OUT_A, 10, OUT_REGMODE_SPEED);
+				Wait(10 * HUNT_TIME);
+				ResetRotationCount(OUT_AB);
+				behaviorState = MOVING; //Resume wandering when done turning around
+			}
+		}
+		Release(behaviorMutex);
+		Wait(20);
+	}
+}
+
+task sonar() {
+	int new_dist = 0;
+	int distances[NUM_SAMPLES];
+	int weighted_dist = 0;
+	long us_count = 0;  //total us samples
+	bool found = false;
+	Wait(500); //Wait for sonor sensor to initialize
+	while(true) {
+		new_dist = SensorUS(S1);
+		distances[us_count % NUM_SAMPLES] = new_dist;
+		if (us_count < NUM_SAMPLES) weighted_dist = new_dist;
+		else {
+			int multiplier = NUM_SAMPLES;
+			weighted_dist = 0;
+			for (int i = 0; i < NUM_SAMPLES; i++) {
+				weighted_dist += (multiplier * distances[(us_count - i) % NUM_SAMPLES]);
+				multiplier--;
+			}
+			weighted_dist = weighted_dist / ((NUM_SAMPLES * (NUM_SAMPLES + 1)) / 2);
+		}
+		us_count++;
+		
+		if (found && weighted_dist < SONAR_SLOW) {
+			//Slow down before hitting, until very close
+			PlayTone(770, 100);
+			OnFwdReg(OUT_AB, 15, OUT_REGMODE_SPEED);
+			int sensor;
+			while ((sensor = SensorUS(S1)) > SONAR_STOP) { Wait(10);}
+			//Stop
+			OnFwd(OUT_AB, 0);
+			PlayTone(230, 2000);
+			Wait(2000);
+			//Backup
+			OnRev(OUT_AB, 70);
+			Wait(750);
+			//Turn away from object
+			OnFwd(OUT_A, 40);
+			OnRev(OUT_B, 40);
+			Wait(1000);
+			//Reset weighted average and rotation count
+			us_count = 0;
+			ResetRotationCount(OUT_AB);
+			//Continue
+			found = false;
+			PlayTone(880, 250);
+			behaviorState = MOVING; //Resume random walk
+			onLine = false; //Assume we're no longer on a line
+			Release(behaviorMutex);
+		} else if (!found && weighted_dist < SONAR_GO) { //Approach
+			Acquire(behaviorMutex);
+			behaviorState = SONAR;
+			PlayTone(330, 250);
+			found = true;			
+			OnFwdReg(OUT_AB, 50, OUT_REGMODE_SPEED);
+			//Audio feedback
+			PlayTone(weighted_dist * 20, ONE_SECOND / SAMPLES_PER_SECOND);
+		} else if (found && weighted_dist == 255) {
+			//We lost the object
+			PlayTone(880, 250);
+			behaviorState = MOVING; //Resume random walk
+			found = false;
+			onLine = false; //Assume we're not on a line anymore
+			Release(behaviorMutex);
+		}
+		Wait(ONE_SECOND / SAMPLES_PER_SECOND);
+	}
+}
+
+task main() {
+	SetSensorUltrasonic(S1);
+	SetSensor(S2, SENSOR_LIGHT);
+	SetSensor(S3, SENSOR_LIGHT);
+	Precedes(sonar, move, lineTrack);
+}
