@@ -55,7 +55,6 @@ task move() {
 	while(true) {
 		
 		Acquire(behaviorMutex);
-		TextOut(0, LCD_LINE1, "MOVE ");
 		if (behaviorState == MOVING) {
 			//motor b (left motor) actually travels further than what its motor rotation count
 			//returns. So to compensate for this loss, we add an increasling large
@@ -208,6 +207,11 @@ task sonar() {
 			weighted_dist = weighted_dist / ((NUM_SAMPLES * (NUM_SAMPLES + 1)) / 2);
 		}
 		us_count++;
+		
+		TextOut(0, LCD_LINE1, "        ");
+		TextOut(0, LCD_LINE2, "        ");
+		NumOut(0, LCD_LINE1, new_dist);
+		NumOut(0, LCD_LINE2, weighted_dist);
 		
 		if (found && weighted_dist < SONAR_SLOW) {
 			//Slow down before hitting, until very close
